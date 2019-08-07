@@ -1,0 +1,4 @@
+resources:
+  - mysql-configmap.yaml
+  - mysql-services.yaml
+  - mysql-statefulset.yaml 
