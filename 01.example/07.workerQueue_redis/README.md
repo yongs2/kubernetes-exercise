@@ -9,7 +9,7 @@ kubectl create -f https://kubernetes.io/examples/application/job/redis/redis-pod
 
 ## 2. 테스트
 
-### 1) Start a temporary interactive pod for running the Redis CLI.
+### 1) Start a temporary interactive pod for running the Redis CLI
 
 ```sh
 kubectl run -i --tty temp --image redis --command "/bin/sh"
