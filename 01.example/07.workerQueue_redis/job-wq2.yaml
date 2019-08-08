@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-wq-2
+spec:
+  parallelism: 2
+  template:
+    metadata:
+      name: job-wq-2
+    spec:
+      containers:
+      - name: c
+        image: 192.168.0.210:5000/job-wq-2
+      restartPolicy: OnFailure
