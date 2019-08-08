@@ -87,7 +87,7 @@ kubectl create -f https://raw.githubusercontent.com/kubernetes/kubernetes/releas
   kubectl logs $pods
   ```
 
-### 5) job-wa-1 이 생성되고, pod 가 2개씩 최대 8개까지 생성
+### 5) job-wq-1 이 생성되고, pod 가 2개씩 최대 8개까지 생성
 
 ### 6) job 삭제
 
