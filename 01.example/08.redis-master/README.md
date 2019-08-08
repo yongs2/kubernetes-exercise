@@ -46,3 +46,10 @@ kubectl get pods ${pod} --template='{{(index (index .spec.containers 0).ports 0)
 ```sh
 kubectl patch svc redis-master -n default -p '{"spec": {"type": "LoadBalancer", "externalIPs":["192.168.0.80"]}}'
 ```
+
+### 4. 제거
+
+```sh
+kubectl delete -f ./redis-master-deployment.yaml
+kubectl delete -f ./redis-master-service.yaml
+```
