@@ -37,3 +37,9 @@ ps aux
 curl localhost
 cat /usr/share/nginx/html/index.html
 ```
+
+### 4) 제거
+
+```sh
+kubectl delete -f https://k8s.io/examples/pods/two-container-pod.yaml
+```
