@@ -23,6 +23,18 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/website/master/con
 ```sh
 kubectl get pods -l app=mysql --watch
 kubectl get pvc -l app=mysql
+
+kubectl run mysql-client --image=mysql:5.7 -it --rm --restart=Never /bin/bash
+apt-get update; apt-get install -y dnsutils net-tools iputils-ping procps;
+
+nslookup mysql-0.mysql
+nslookup mysql
+nslookup mysql.default.svc.k8s.local
+
+nslookup mysql-read
+nslookup mysql-read.default.svc.k8s.local
+
+kubectl run xtrabackup --image=gcr.io/google-samples/xtrabackup:1.0 -it --rm --restart=Never /bin/bash
 ```
 
 ## 4) 시험
@@ -33,7 +45,7 @@ kubectl get pvc -l app=mysql
 kubectl run mysql-client --image=mysql:5.7 -i --rm --restart=Never --\
   mysql -h mysql-0.mysql <<EOF
 CREATE DATABASE test;
-CREATE TABLE test.messages (message VARCHAR(250));
+CREATE TABLE test.messages (message varchar(250));
 INSERT INTO test.messages VALUES ('hello');
 EOF
 ```
