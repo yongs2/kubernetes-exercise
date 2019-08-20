@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ins-restapi
+  labels:
+    app: ins-restapi
+spec:
+  ports:
+  - port: 3000
+    targetPort: 3000
+  selector:
+    app: ins-restapi
+    tier: frontend
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ins-restapi
+  labels:
+    app: ins-restapi
+spec:
+  selector:
+    matchLabels:
+      app: ins-restapi
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: ins-restapi
+        tier: frontend
+    spec:
+      containers:
+      - image: 192.168.0.210:5000/ins-restapi:1.0.0
+        name: ins-restapi
+        env:
+        - name: NODE_ENV
+          value: production
+        - name: DB_URL
+          value: jdbc:tibero:thin:@3.19.3.150:14392:TST_DB
+        - name: DB_USER
+          value: ins
+        - name: DB_PASS
+          value: ins1234
+        - name: INS_URL
+          value: http://192.168.0.192:8080
+        - name: OAUTH_URL
+          value: http://redis-oauth2-server:3001
+        ports:
+        - containerPort: 3000
