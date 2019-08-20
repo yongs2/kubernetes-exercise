@@ -84,3 +84,7 @@ kubectl delete -f ./redis-master-service.yaml
 kubectl delete -f ./redis-slave-deployment.yaml
 kubectl delete -f ./redis-slave-service.yaml
 ```
+
+## 4. redis-statefulset 구성 예제
+
+[Deploying Redis Cluster with StatefulSets](https://schoolofdevops.github.io/ultimate-kubernetes-bootcamp/13_redis_statefulset/)
