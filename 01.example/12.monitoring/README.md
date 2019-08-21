@@ -13,7 +13,7 @@
 ### 2) prometheus 설치
 
 ```sh
-mv prometheus-kubernetes.yml prometheus-kubernetes-config.yaml
+cp prometheus-kubernetes.yml prometheus-kubernetes-config.yaml
 ```
 
 - 위 examples 에 있는 rbac-setup.yaml 파일을 가지고 권한 설정해야 하나, 오류로 데이터 수집이 안되어서, ClusterRoleBinding 항목에 serviceAccount 의 name을 default 으로 변경 후 생성
