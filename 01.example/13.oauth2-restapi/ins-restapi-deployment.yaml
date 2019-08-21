@@ -50,3 +50,35 @@ spec:
           value: http://redis-oauth2-server:3001
         ports:
         - containerPort: 3000
+        volumeMounts:
+        - name: log-volume
+          mountPath: /app/log
+      - name: fluent-bit
+        image: fluent/fluent-bit:1.2-debug
+        imagePullPolicy: Always
+        ports:
+          - containerPort: 2020
+        env:
+        - name:  FLUENT_ELASTICSEARCH_HOST
+          value: "elasticsearch-svc.default.svc.k8s.local"
+        - name:  FLUENT_ELASTICSEARCH_PORT
+          value: "9200"
+        volumeMounts:
+        - name: log-volume
+          mountPath: /var/logs
+        - name: fluent-bit-config
+          mountPath: /fluent-bit/etc/
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: log-volume
+        emptyDir: {}
+      - name: fluent-bit-config
+        configMap:
+          name: fluent-bit-config

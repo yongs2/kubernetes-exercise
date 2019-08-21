@@ -78,3 +78,29 @@ kubectl get pods ${pod} --template='{{(index (index .spec.containers 0).ports 0)
 ```sh
 kubectl patch svc ins-restapi -n default -p '{"spec": {"type": "LoadBalancer", "externalIPs":["192.168.0.80"]}}'
 ```
+
+## 3. log 수집에 추가
+
+### 3-1) [fluent-bit 사용](https://yunsangjun.github.io/blog/kubernetes/2018/07/06/kubernetes-logging.html)
+
+```sh
+kubectl create -f ./fluentbit-sidecar-config.yaml
+```
+
+### 3-2) 수정된 ins-restapi 적용, container 가 2개 (ins-restapi, fluent-bit)
+
+- ins-restapi 에서 log-volume 를 /app/log 에 mount
+- fluent-bit 에서는 log-voulume 를 /var/logs 에 mount
+- fluentbit-sidecar-config 에서 fluent-bit.conf 를 참조하면, /var/logs/app.log 을 지정
+
+```sh
+pod=$(kubectl get pods -l app=ins-restapi --output=jsonpath='{.items[*].metadata.name}')
+kubectl exec -it $pod -c ins-restapi /bin/bash
+kubectl logs $pod -c fluent-bit
+```
+
+### 3-3) 기동 후 kibana 에 index pattern 설정
+
+- Kibana 접속 > 왼쪽 메뉴 > Management 메뉴 선택 > Kibana > Index Patterns 선택 하고 fluentbit 를 입력
+- 왼쪽 메뉴 > Discover 메뉴 선택 > select 박스에서 fluentbit 를 선택
+- 로그 검색되는 지 확인
