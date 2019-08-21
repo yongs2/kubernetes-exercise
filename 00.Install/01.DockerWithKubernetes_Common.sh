@@ -53,11 +53,11 @@ echo -e "${RED}INSTALL DOCKER${NC}"
 sudo yum install -y docker-ce
 
 # private registry
-cat <<EOF > /etc/docker/daemon.json
+sudo bash -c 'cat <<EOF > /etc/docker/daemon.json
 {
     "insecure-registries": ["192.168.0.210:5000"]
 }
-EOF
+EOF'
 
 # Start Docker
 echo -e "${RED}START DOCKER${NC}"
