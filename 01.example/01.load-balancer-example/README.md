@@ -1,7 +1,7 @@
 
-[외부 IP 주소를 노출하여 클러스터의 애플리케이션에 접속하기](https://kubernetes.io/ko/docs/tutorials/stateless-application/expose-external-ip-address/)
+# [외부 IP 주소를 노출하여 클러스터의 애플리케이션에 접속하기](https://kubernetes.io/ko/docs/tutorials/stateless-application/expose-external-ip-address/)
 
-```
+```sh
 kubectl apply -f https://k8s.io/examples/service/load-balancer-example.yaml
 
 kubectl get deployments hello-world
@@ -23,4 +23,4 @@ NAME         TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE
 my-service   LoadBalancer   10.111.223.36   <pending>     8080:32037/TCP   20s
 ```
 
-- 접속 : http://192.168.0.80:32037
+- 접속 : <http://192.168.0.80:32037>
