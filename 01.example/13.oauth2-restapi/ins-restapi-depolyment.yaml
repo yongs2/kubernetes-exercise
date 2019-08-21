@@ -39,7 +39,7 @@ spec:
         - name: NODE_ENV
           value: production
         - name: DB_URL
-          value: jdbc:tibero:thin:@3.19.3.150:14392:TST_DB
+          value: jdbc:tibero:thin:@192.168.0.194:8629:TST_DB
         - name: DB_USER
           value: ins
         - name: DB_PASS

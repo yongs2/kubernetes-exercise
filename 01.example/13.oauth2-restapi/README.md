@@ -31,6 +31,23 @@ kubectl get pods ${pod} --template='{{(index (index .spec.containers 0).ports 0)
 kubectl patch svc redis-oauth2-server -n default -p '{"spec": {"type": "LoadBalancer", "externalIPs":["192.168.0.80"]}}'
 ```
 
+### 1-5) 초기 데이터 설정
+
+- pod 로 접속
+
+```sh
+pod=$(kubectl get pods -l app=redis-oauth2-server --output=jsonpath='{.items[*].metadata.name}')
+kubectl exec -it ${pod} /bin/bash
+```
+
+- 초기 client 정보 설정
+
+```sh
+cd /app/model
+node redisTestData.js
+node redisTestQuery.js
+```
+
 ## 2. REST API 서버 생성
 
 ### 2-1) service와 deployment 생성
