@@ -90,7 +90,7 @@ kubectl delete -f ./jenkins-sa-clusteradmin-rbac.yaml -n ns-jenkins
 ## 3. [jenkins custom docker images 생성](https://bryan.wiki/295)
 
 ```sh
-export ADMIN_USR=rnd; export ADMIN_PWD=jdnrnd; export DOCKER_REGISTRY=192.168.0.210:5000
+export ADMIN_USR=${USERID}; export ADMIN_PWD=${PASSWORD}; export DOCKER_REGISTRY=192.168.0.210:5000
 
 export NAMESPACE=ns-jenkins
 export JENKINS_POD=$(kubectl get pods -n $NAMESPACE | grep jenkins-leader | awk '{print $1}')
@@ -145,4 +145,91 @@ docker push ${DOCKER_REGISTRY}/${IMG_NAME}:latest
 docker pull ${DOCKER_REGISTRY}/${IMG_NAME}:${IMG_TAG}
 curl -X GET http://${DOCKER_REGISTRY}/v2/_catalog
 curl -X GET http://${DOCKER_REGISTRY}/v2/jenkins-leader/tags/list
+```
+
+## 2. custom jenkins-leader 이용
+
+### 1) jenkins-deployment 재구성
+
+```sh
+export DOCKER_REGISTRY=192.168.0.210:5000
+export IMG_ORG=docker.io/jenkins/jenkins:lts
+export IMG_NAME=jenkins-leader
+export IMG_TAG=1.0
+
+sed -i -e "s|image: .*|image: ${DOCKER_REGISTRY}/${IMG_NAME}:${IMG_TAG}|g" jenkins-deployment.yaml
+kubectl apply -f ./jenkins-sa-clusteradmin-rbac.yaml -n ns-jenkins
+kubectl apply -f ./jenkins-deployment.yaml -n ns-jenkins
+kubectl get svc -n ns-jenkins
+```
+
+### 2) node-hello-world pipeline
+
+- secret 생성
+
+```sh
+kubectl create secret -n ns-jenkins generic kube-config --from-file=$HOME/.kube/config
+```
+
+- svn 계정을 jenkins 에서 crendetials > System > Global credentials 에서 Add credentials 를 선택
+- buildbot 계정으로 생성
+
+- pipeline script
+
+- svn co시 에러 발생 : svn: E170000: '${SVN_URL}' isn't in the same repository as '${SVN_URL}' , 즉 http 로 접근했는데, https 로 forwarding 하면서 발생한 문제로 파악됨
+svn co --username=buildbot --password=jdnbuild --no-auth-cache --trust-server-cert --non-interactive ${SVN_URL}
+- IP로 직접 접근시 성공
+svn co --username=buildbot --password=jdnbuild --no-auth-cache --trust-server-cert --non-interactive ${SVN_IP_URL}
+- svn checkout 은 http://192.168.0.80:30500/job/node-hello-world/pipeline-syntax/ 에서 checkout 항목을 선택하여 sample 을 확인하여 추가
+- 다음을 pipline script 항목에 입력하고 설정한다
+
+```script
+podTemplate(containers: [
+    containerTemplate(name: 'node', image: 'docker.io/node:10.16.0-stretch', ttyEnabled: true, command: 'cat'),
+  ]) {
+
+    node(POD_LABEL) {
+        stage('svn checkout') {
+            try {
+                checkout([$class: 'SubversionSCM', additionalCredentials: [], excludedCommitMessages: '', excludedRegions: '', excludedRevprop: '', excludedUsers: '', filterChangelog: false, ignoreDirPropChanges: false, includedRegions: '', locations: [[cancelProcessOnExternalsFail: true, credentialsId: 'svn_budilbot', depthOption: 'infinity', ignoreExternalsOption: true, local: '.', remote: '${SVN_URL}']], quietOperation: true, workspaceUpdater: [$class: 'CheckoutUpdater']])
+            }
+            catch(err) {
+                println 'svn checkout failed: ${err}'
+            }
+
+            container('node') {
+                stage('Build a node project') {
+                    sh 'npm install'
+                }
+            }
+        }
+    }
+}
+
+#!groovy
+podTemplate(label: 'node-hello-world-1', containers: [
+    containerTemplate(name: 'kubectl', image: 'docker.io/smesch/kubectl', ttyEnabled: true, command: 'cat',
+        volumes: [secretVolume(secretName: 'kube-config', namespace: 'ns-jenkins', mountPath: '/root/.kube')]) ,
+    containerTemplate(name: 'docker', image: 'docker.io/docker', ttyEnabled: true, command: 'cat',
+        envVars: [containerEnvVar(key: 'DOCKER_CONFIG', value: '/tmp/'),])],
+        volumes: [secretVolume(secretName: 'docker-config', namespace: 'ns-jenkins', mountPath: '/tmp')
+                , hostPathVolume(hostPath: '/var/run/docker.sock', mountPath: '/var/run/docker.sock')]
+) {
+    node('node-hello-world-2') {
+        def DOCKER_REGISTRY='192.168.0.210:5000'
+        def IMG_NAME='node-hello-world'
+
+        stage('Clone node-hello-world App Repository') {
+            svn '${SVN_URL}'
+
+            container('docker') {
+                stage('Docker build & push Current & Latest Versions') {
+                    sh(' export IMG_VER=`cat index.js | grep "const version=" | grep -o "[0-9.]*"` ' )
+                    sh(' docker build -t ${DOCKER_REGISTRY}/${IMG_NAME}:${IMG_VER}.${env.BUILD_NUMBER} node-hello-world ')
+                    sh(' docker push  ${DOCKER_REGISTRY}/${IMG_NAME}:${IMG_VER}.${env.BUILD_NUMBER} ')
+                }
+            }
+        }
+    }
+}
 ```
