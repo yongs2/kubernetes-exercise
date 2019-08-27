@@ -182,16 +182,44 @@ svn co --username=buildbot --password=jdnbuild --no-auth-cache --trust-server-ce
 svn co --username=buildbot --password=jdnbuild --no-auth-cache --trust-server-cert --non-interactive ${SVN_IP_URL}
 - svn checkout 은 http://192.168.0.80:30500/job/node-hello-world/pipeline-syntax/ 에서 checkout 항목을 선택하여 sample 을 확인하여 추가
 - 다음을 pipline script 항목에 입력하고 설정한다
+- plugin 중에서 blueocean을 추가로 설치하면 좀 더 보기 편한 UI 화면으로 전환
 
 ```script
-podTemplate(containers: [
-    containerTemplate(name: 'node', image: 'docker.io/node:10.16.0-stretch', ttyEnabled: true, command: 'cat'),
-  ]) {
-
+podTemplate(
+    containers: [
+        containerTemplate(name: 'node', image: 'docker.io/node:10.16.0-stretch', ttyEnabled: true, command: 'cat'),
+        , containerTemplate(name: 'docker', image: 'docker.io/docker:19.03.1', ttyEnabled: true, command: 'cat')
+    ],
+    volumes: [
+        hostPathVolume(hostPath: '/var/run/docker.sock', mountPath: '/var/run/docker.sock')
+    ]
+)
+{
     node(POD_LABEL) {
+        def DOCKER_REGISTRY = '192.168.0.210:5000'
+        def IMG_NAME='node-hello-world'
+
         stage('svn checkout') {
             try {
-                checkout([$class: 'SubversionSCM', additionalCredentials: [], excludedCommitMessages: '', excludedRegions: '', excludedRevprop: '', excludedUsers: '', filterChangelog: false, ignoreDirPropChanges: false, includedRegions: '', locations: [[cancelProcessOnExternalsFail: true, credentialsId: 'svn_budilbot', depthOption: 'infinity', ignoreExternalsOption: true, local: '.', remote: '${SVN_URL}']], quietOperation: true, workspaceUpdater: [$class: 'CheckoutUpdater']])
+                checkout([$class: 'SubversionSCM'
+                    , additionalCredentials: []
+                    , excludedCommitMessages: ''
+                    , excludedRegions: ''
+                    , excludedRevprop: ''
+                    , excludedUsers: ''
+                    , filterChangelog: false
+                    , ignoreDirPropChanges: false
+                    , includedRegions: ''
+                    , locations: [[cancelProcessOnExternalsFail: true
+                        , credentialsId: 'svn_budilbot'
+                        , depthOption: 'infinity'
+                        , ignoreExternalsOption: true
+                        , local: '.'
+                        , remote: '${SVN_URL}']
+                    ]
+                    , quietOperation: true
+                    , workspaceUpdater: [$class: 'CheckoutUpdater']
+                ])
             }
             catch(err) {
                 println 'svn checkout failed: ${err}'
@@ -202,31 +230,67 @@ podTemplate(containers: [
                     sh 'npm install'
                 }
             }
+
+            container('docker') {
+                stage('Docker build image') {
+                    script {
+                        def IMG_VER = sh(script: 'cat index.js | grep "const version=" | grep -o "[0-9.]*"', returnStdout: true).trim()
+                        dockerImage = docker.build("${DOCKER_REGISTRY}/${IMG_NAME}:${IMG_VER}.${env.BUILD_NUMBER}",  '-f ./Dockerfile .')
+                    }
+                }
+                stage('Docker push') {
+                    script {
+                        docker.withRegistry('','') {
+                            dockerImage.push()
+                        }
+                    }
+                }
+            }
         }
     }
 }
+```
 
+- 스크립트 정상 여부는 pipeline script 로 확인한 후에, 안정화가 되면, Jenkinsfile 로 등록한 후에 pipeline script from SCM 으로 진행
+- SCM 이므로, 이미 svn 설정이 되어 있으므로, checkout scm 으로만 수정
+
+```groovy
 #!groovy
-podTemplate(label: 'node-hello-world-1', containers: [
-    containerTemplate(name: 'kubectl', image: 'docker.io/smesch/kubectl', ttyEnabled: true, command: 'cat',
-        volumes: [secretVolume(secretName: 'kube-config', namespace: 'ns-jenkins', mountPath: '/root/.kube')]) ,
-    containerTemplate(name: 'docker', image: 'docker.io/docker', ttyEnabled: true, command: 'cat',
-        envVars: [containerEnvVar(key: 'DOCKER_CONFIG', value: '/tmp/'),])],
-        volumes: [secretVolume(secretName: 'docker-config', namespace: 'ns-jenkins', mountPath: '/tmp')
-                , hostPathVolume(hostPath: '/var/run/docker.sock', mountPath: '/var/run/docker.sock')]
-) {
-    node('node-hello-world-2') {
-        def DOCKER_REGISTRY='192.168.0.210:5000'
+podTemplate(
+    containers: [
+        containerTemplate(name: 'node', image: 'docker.io/node:10.16.0-stretch', ttyEnabled: true, command: 'cat'),
+        , containerTemplate(name: 'docker', image: 'docker.io/docker:19.03.1', ttyEnabled: true, command: 'cat')
+    ],
+    volumes: [
+        hostPathVolume(hostPath: '/var/run/docker.sock', mountPath: '/var/run/docker.sock')
+    ]
+)
+{
+    node(POD_LABEL) {
+        def DOCKER_REGISTRY = '192.168.0.210:5000'
         def IMG_NAME='node-hello-world'
 
-        stage('Clone node-hello-world App Repository') {
-            svn '${SVN_URL}'
+        stage('Checkout') {
+            checkout scm
 
+            container('node') {
+                stage('Build a node project') {
+                    sh 'npm install'
+                }
+            }
             container('docker') {
-                stage('Docker build & push Current & Latest Versions') {
-                    sh(' export IMG_VER=`cat index.js | grep "const version=" | grep -o "[0-9.]*"` ' )
-                    sh(' docker build -t ${DOCKER_REGISTRY}/${IMG_NAME}:${IMG_VER}.${env.BUILD_NUMBER} node-hello-world ')
-                    sh(' docker push  ${DOCKER_REGISTRY}/${IMG_NAME}:${IMG_VER}.${env.BUILD_NUMBER} ')
+                stage('Docker build image') {
+                    script {
+                        def IMG_VER = sh(script: 'cat index.js | grep "const version=" | grep -o "[0-9.]*"', returnStdout: true).trim()
+                        dockerImage = docker.build("${DOCKER_REGISTRY}/${IMG_NAME}:${IMG_VER}.${env.BUILD_NUMBER}",  '-f ./Dockerfile .')
+                    }
+                }
+                stage('Docker push') {
+                    script {
+                        docker.withRegistry('','') {
+                            dockerImage.push()
+                        }
+                    }
                 }
             }
         }
