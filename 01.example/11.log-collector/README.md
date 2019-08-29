@@ -83,6 +83,11 @@ kubectl get pods -l k8s-app=fluentd-logging -n kube-system --output=jsonpath='{.
 ### 2) kibana 항목에 있는 Index Patterns 으로 이동
 
 - logstash-* 으로 신규 생성
+- 만약 생성 중 Forbidden 에러가 발생하면, 다음과 같이 호출, [참고](https://blog.mimimi.fun/ki/)
+
+```sh
+curl -XPUT -H "Content-Type: application/json" http://192.168.0.80:30920/_all/_settings -d '{"index.blocks.read_only_allow_delete": null}'
+```
 
 ### 3) 좌측 메뉴의 Discover 로 이동
 
