@@ -1,2 +1,1 @@
-kubectl -n kube-system describe $(kubectl -n kube-system get secret -n kube-system -o name | grep namespace) | grep token
-
+kubectl describe $(kubectl get secret --all-namespaces -o name | grep cluster-admin-dashboard) | grep "token: "
