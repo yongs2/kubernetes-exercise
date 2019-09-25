@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats-qsub
+  labels:
+    app: nats-qsub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats-qsub
+  template:
+    metadata:
+      labels:
+        app: nats-qsub
+    spec:
+      containers:
+      - name: nats-qsub
+        image: 192.168.0.210:5000/nats-qsub:1.0.0
+        env:
+          - name: NATS_URL
+            value: example-nats-cluster
+          - name: SUBJECT
+            value: foo
+          - name: QUEUE
+            value: my-queue

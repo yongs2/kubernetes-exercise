@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats-pub
+  labels:
+    app: nats-pub
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: nats-pub
+  template:
+    metadata:
+      labels:
+        app: nats-pub
+    spec:
+      containers:
+      - name: nats-pub
+        image: 192.168.0.210:5000/nats-pub:1.0.0
+        env:
+          - name: NATS_URL
+            value: example-nats-cluster
+          - name: SUBJECT
+            value: foo
+          - name: MESSAGE
+            value: "NATS MESSAGE 1"
+        command: [ "perf.sh", "10000" ]
