@@ -1,0 +1,156 @@
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: default
+  name: dp
+  labels:
+    app: dp
+    service: dp
+spec:
+  ports:
+  - name: http
+    port: 5000
+    targetPort: 5000
+    protocol : TCP
+  selector:
+    app: dp 
+  type: LoadBalancer
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  namespace: default
+  name: dp
+  labels:
+    app: dp
+    version: v1
+spec:
+  replicas: 1
+  template:
+    metadata:
+      namespace: default
+      labels:
+        app: dp
+        version: v1
+    spec:
+      containers:
+      - name: fluent-bit
+        image: docker.io/fluent/fluent-bit:1.3-debug
+        imagePullPolicy: Always
+        ports:
+          - containerPort: 2020
+          - containerPort: 5170
+        env:
+        - name:  FLUENT_ELASTICSEARCH_HOST
+          value: "elasticsearch-master.elastic.svc.cluster.local"
+        - name:  FLUENT_ELASTICSEARCH_PORT
+          value: "9200"
+        - name:  FLUENTD_HOST
+          value: "fluentd.elastic.svc.cluster.local"
+        - name:  FLUENTD_PORT
+          value: "24224"
+        volumeMounts:
+        - name: fluent-bit-config
+          mountPath: /fluent-bit/etc/
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+      - name: dp
+        image: centos7-dp:1.0.0
+        ports:
+        - containerPort: 5000
+          name: http
+        env:
+        - name: LOG_LEVEL
+          value: INFO
+        - name: TIMEOUT
+          value: "10"
+        - name: FLUENT_BIT_HOST
+          value: "127.0.0.1"
+        - name: FLUENT_BIT_PORT
+          value: "5170"
+      volumes:
+      - name: fluent-bit-config
+        configMap:
+          name: fluent-bit-config
+      imagePullSecrets:
+        - name: regcred
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  namespace: default
+  name: dp-virsvc
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - dp-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /diameter
+    - uri:
+        prefix: /register
+    route:
+    - destination:
+        host: dp.default.svc.cluster.local
+        port:
+          number: 5000
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  namespace: default
+  name: dp-gateway
+spec:
+  selector:
+    istio: ingressgateway # use istio default controller
+  servers:
+  - port:
+      number: 80
+      name: http2
+      protocol: HTTP2
+    hosts:
+    - "*"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: default
+  name: fluent-bit-config
+  labels:
+    k8s-app: fluent-bit
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+      Flush       1
+      Log_Level   info
+      Daemon      off
+      Parsers_File parsers.conf
+      HTTP_Server  Off
+
+    [INPUT]
+      Name        tcp
+      Listen      0.0.0.0
+      Port        5170
+      Chunk_Size  32
+      Buffer_Size 64
+      Format      none
+
+    [FILTER]
+      Name        stdout
+      Match       *
+
+    [OUTPUT]
+      Name        es
+      Match       *
+      Host        ${FLUENT_ELASTICSEARCH_HOST}
+      Port        ${FLUENT_ELASTICSEARCH_PORT}
+      Index       fluentbit
+      Retry_Limit False
+---
