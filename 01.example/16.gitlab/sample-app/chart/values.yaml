@@ -1,0 +1,18 @@
+common:
+  redis:
+    host: "redis6-redis-cluster.redis6.svc.cluster.local"
+    port: "6379"
+    addrs: "redis6-redis-cluster-headless.redis6.svc.cluster.local:6379"
+    dbIndex: 0 # Redis Cluster only supports database zero
+deploy:
+  name: "initial"
+app1:
+  image: "myhost.com:5005/sample/app/sample-app1"
+app2:
+  image: "myhost.com:5005/sample/app/sample-smpc"
+  modServiceUri: "127.0.0.1:9001,127.0.0.1:9002"
+mod:
+  image: "myhost.com:5005/sample/app/sample-mod"
+  version: "1.0.1"
+app3:
+  image: "myhost.com:5005/sample/app/sample-app3"

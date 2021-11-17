@@ -1,0 +1,465 @@
+# This file is a template, and might need editing before it works on your project.
+# To contribute improvements to CI/CD templates, please follow the Development guide at:
+# https://docs.gitlab.com/ee/development/cicd/templates.html
+# This specific template is located at:
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Getting-Started.gitlab-ci.yml
+
+# This is a sample GitLab CI/CD configuration file that should run without any modifications.
+# It demonstrates a basic 3 stage CI/CD pipeline. Instead of real tests or scripts,
+# it uses echo commands to simulate the pipeline execution.
+#
+# A pipeline is composed of independent jobs that run scripts, grouped into stages.
+# Stages run in sequential order, but jobs within stages run in parallel.
+#
+# For more information, see: https://docs.gitlab.com/ee/ci/yaml/index.html#stages
+
+stages:          # List of stages for jobs, and their order of execution
+  - prepare
+  - build
+  - test
+  - deploy
+  - switch
+  - onCleanup
+  - onRollback
+
+variables:
+  DOCKER_TLS_CERTDIR: ""
+  KUBE_NAMESPACE: sample-app
+  RELEASE_NAME: app
+  
+  CHART_HOME: "chart"
+
+  # Temporary yaml Files
+  TMP_DIR: tmp
+
+  OLD_CHART: ${TMP_DIR}/${KUBE_NAMESPACE}-old.yaml
+  OLD_SERVICE_YAML: ${TMP_DIR}/${KUBE_NAMESPACE}-old-service.yaml
+  OLD_DEPLOY_YAML: ${TMP_DIR}/${KUBE_NAMESPACE}-old-deploy.yaml
+  OLD_DEPLOY2_YAML: ${TMP_DIR}/${KUBE_NAMESPACE}-old-deploy2.yaml
+
+  NEW_CHART: ${TMP_DIR}/${KUBE_NAMESPACE}-new.yaml
+  NEW_SERVICE_YAML: ${TMP_DIR}/${KUBE_NAMESPACE}-new-service.yaml
+  NEW_DEPLOY_YAML: ${TMP_DIR}/${KUBE_NAMESPACE}-new-deploy.yaml
+  NEW_DEPLOY2_YAML: ${TMP_DIR}/${KUBE_NAMESPACE}-new-deploy2.yaml
+
+  META_APP_ONLYS: "sample-app1 sample-app3"
+  META_APP_POLES: "sample-app2"
+
+prepare-build:
+  stage: prepare
+  image: myhost.com:5005/k8s:latest
+  before_script:
+    - echo "CI_PIPELINE_SOURCE=${CI_PIPELINE_SOURCE}"
+    - echo "KUBECONFIG(for helm)=${KUBECONFIG}"
+    - git config --global user.email "${GIT_USER_EMAIL:-$GITLAB_USER_EMAIL}"
+    - git config --global user.name "${GIT_USER_NAME:-$GITLAB_USER_NAME}"
+
+  script:
+    - | # check mod version
+      export NEW_MOD_VERSION=${MOD_VERSION}
+      NEW_MOD_FULL_VERSION="${NEW_MOD_VERSION}"
+      if [ "X${NEW_MOD_SERVICE}" = "X" ] ; then
+        echo "MOD_SERVICE is empty, NEW_MOD_FULL_VERSION[${NEW_MOD_FULL_VERSION}]"
+        exit 1
+      fi
+      if [ "X${NEW_MOD_VERSION}" = "X" ] ; then
+        echo "MOD_VERSION is empty, NEW_MOD_FULL_VERSION[${NEW_MOD_FULL_VERSION}]"
+        exit 1
+      fi
+
+      OLD_MOD_VERSION=`yq ea ' .mod.version ' ${CHART_HOME}/values.yaml `
+      OLD_MOD_FULL_VERSION="${OLD_MOD_VERSION}"
+
+      echo "COMPARE: OLD[${OLD_MOD_FULL_VERSION}]=NEW[${NEW_MOD_FULL_VERSION}]"
+      if [ "${OLD_MOD_FULL_VERSION}" = "${NEW_MOD_FULL_VERSION}" ] ; then
+        # same name and version
+        echo "SAME: OLD[${OLD_MOD_FULL_VERSION}]=NEW[${NEW_MOD_FULL_VERSION}]"
+        exit 1
+      fi
+      
+    - | # Update mod.version with new app info
+      git config --global http.sslVerify false
+      yq ea --inplace ' .mod.version = env(NEW_MOD_VERSION) | .deploy.name style="double" ' ${CHART_HOME}/values.yaml
+      git checkout main
+      git add ${CHART_HOME}/values.yaml
+      git commit -m "auto fix ${NEW_MOD_FULL_VERSION}"
+      git push -o ci.skip "https://${GITLAB_USER_NAME}:${GIT_ACCESS_TOKEN}@${CI_REPOSITORY_URL#*@}"
+
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+      when: on_success
+
+build-job:       # This job runs in the build stage, which runs first.
+  stage: build
+  image: myhost.com:5005/k8s:latest
+  variables:
+    REGISTRY_URL: "myhost.com:5005"
+    USERNAME: "${GITLAB_USERNAME}"
+    PASSWORD: "${GITLAB_PASSWORD}"
+    ACS_TKN: "${GITLAB_PRJ_ACS_TKN}"
+  services:
+    - name: docker:dind
+      command: [ "--insecure-registry=${CI_REGISTRY}" ]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - ${CHART_HOME}/Chart.yaml
+        - ${CHART_HOME}/values.yaml
+
+  before_script:
+    - echo "CI_PIPELINE_SOURCE=${CI_PIPELINE_SOURCE}"
+    - echo "DOCKER_VERSION=$DOCKER_VERSION"
+    - echo "DOCKER_AUTH_CONFIG=${DOCKER_AUTH_CONFIG}"
+    - mkdir -p $HOME/.docker
+    - echo $DOCKER_AUTH_CONFIG > $HOME/.docker/config.json
+    - ls -la /etc/docker/; cat /etc/docker/daemon.json;
+    - git config --global user.email "${GIT_USER_EMAIL:-$GITLAB_USER_EMAIL}"
+    - git config --global user.name "${GIT_USER_NAME:-$GITLAB_USER_NAME}"
+
+  script:
+    - | # update for auto commit
+      git config --global http.sslVerify false
+      git checkout main
+      git pull origin main
+
+    - | # check version
+      # new Tag
+      NEW_APP_VERSION=`yq ea ' .appVersion ' ${CHART_HOME}/Chart.yaml `
+      NEW_MOD_VERSION=`yq ea ' .mod.version ' ${CHART_HOME}/values.yaml `
+      NEW_VERSION="${NEW_APP_VERSION}-${NEW_MOD_VERSION}"
+
+      # function
+      get_current_version_for_apps() {
+        META_APPS=${1}
+        echo "1nd) META_APPS=[${META_APPS}]"
+        
+        for META_APP in ${META_APPS} ; do
+          CUR_VERSION=`kubectl -n sample-app get deployments --selector=app.kubernetes.io/name=${META_APP} -o=jsonpath='{.items[*].metadata.labels.version}'`
+
+          echo "COMPARE: OLD[${CUR_VERSION}]=NEW[${NEW_VERSION}]"
+          if [ "${CUR_VERSION}" = "${NEW_VERSION}" ] ; then
+            # same name and version
+            echo "SAME: OLD[${CUR_VERSION}]=NEW[${NEW_VERSION}]"
+            exit 1
+          fi
+        done
+      }
+      
+      # for PolVersion
+      get_current_version_for_apps ${META_APP_POLES}
+
+    - | # set environment variables
+      echo "CI_REGISTRY_IMAGE=${CI_REGISTRY_IMAGE}"
+      export APP_VERSION=`yq ea ' .appVersion ' ${CHART_HOME}/Chart.yaml `
+      export MOD_VERSION=`yq ea ' .mod.version ' ${CHART_HOME}/values.yaml `
+
+# unit-test-job:   # This job runs in the test stage.
+#   stage: test    # It only starts when the job in the build stage completes successfully.
+#   image: 
+#     name: loadimpact/k6:0.34.1
+#     entrypoint: ['']
+#   variables:
+#     K6_TEST_FILE: ./test/sample_app_test.js
+#     K6_OPTIONS: '-e DEST=${DEST_PCF} -e ETCD_URL=${DEST_ETCD_URL} --vus 1'
+#   script:
+#     - k6 run $K6_TEST_FILE --summary-export=unit-test.json $K6_OPTIONS
+#   artifacts:
+#     paths:
+#       - unit-test.json
+#   rules:
+#     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+#       changes:
+#         - ${CHART_HOME}/Chart.yaml
+#         - ${CHART_HOME}/values.yaml
+#       when: on_success
+
+prepare-app:      # This job runs in the deploy stage.
+  stage: deploy  # It only runs when *both* jobs in the test stage complete successfully.
+  image: myhost.com:5005/k8s:latest
+  before_script:
+    - env
+    - echo "KUBECONFIG(for helm)=${KUBECONFIG}"
+    - mkdir -p ${CI_PROJECT_DIR}/${TMP_DIR}
+    - git config --global user.email "${GIT_USER_EMAIL:-$GITLAB_USER_EMAIL}"
+    - git config --global user.name "${GIT_USER_NAME:-$GITLAB_USER_NAME}"
+
+  script:
+    - | # update for auto commit
+      git config --global http.sslVerify false
+      git checkout main
+      git pull origin main
+      
+    - | # get app yaml
+      # get current service, export yaml
+      kubectl_get_resource() {
+        OBJ=${1}
+        OUT_YAML=${2}
+
+        echo -n > ${OUT_YAML}
+        for DEF in $(kubectl -n ${KUBE_NAMESPACE}  get --show-kind --ignore-not-found "$OBJ" -o name)
+        do
+          echo "DEF=$DEF"
+          kubectl -n ${KUBE_NAMESPACE} get $DEF -o yaml \
+            | yq eval 'del(.metadata.resourceVersion, .metadata.uid, .metadata.annotations, .metadata.creationTimestamp, .metadata.selfLink, .metadata.managedFields, .status, .spec.strategy )' - >> ${OUT_YAML}
+          echo "---" >> ${OUT_YAML}
+        done
+      }
+      kubectl_get_resource "services" ${OLD_SERVICE_YAML}
+      kubectl_get_resource "deployments.apps" ${OLD_DEPLOY_YAML}
+
+      # get new chart
+      helm template ${RELEASE_NAME} ${CHART_HOME} --namespace ${KUBE_NAMESPACE} \
+          --values ${CHART_HOME}/values.yaml \
+          --set common.trustEndpoint=${KUBE_INGRESS_URI} \
+          --set common.untrustEndpoint=${KUBE_INGRESS_URI} \
+          --set common.errorAPIEndpoint=${KUBE_INGRESS_URI} \
+          --set common.exporter.endpoint="sample-exporter.${KUBE_NAMESPACE}.svc.cluster.local:9191" \
+          --set mod.image=${CI_REGISTRY_IMAGE}/sample-mod > ${NEW_CHART}
+
+      if [ ! -f ${NEW_CHART} ] ; then
+        echo "File not Exist ${NEW_CHART}"
+        exit 1
+      fi
+
+      # get info of Deployment
+      yq ea 'select( .kind == "Deployment" )' ${NEW_CHART} > ${NEW_DEPLOY_YAML}
+
+      # get info of Service
+      yq ea 'select( .kind == "Service" )' ${NEW_CHART} > ${NEW_SERVICE_YAML}
+
+      # new Tag
+      TAG_APP_VERSION=`yq ea ' .appVersion ' ${CHART_HOME}/Chart.yaml | sed 's/\.//g'`
+      TAG_MOD_VERSION=`yq ea ' .mod.version ' ${CHART_HOME}/values.yaml | sed 's/\.//g'`
+
+      TAG_APP_ONLY=${TAG_APP_VERSION}
+      TAG_APP_POLE=${TAG_APP_VERSION}-${TAG_MOD_VERSION}
+      echo "TAG_APP_ONLY=${TAG_APP_ONLY}, TAG_APP_POLE=${TAG_APP_POLE}"
+
+      # function
+      get_old_new_deployment_for_apps() {
+        META_APP_TAG=${1}
+        shift
+
+        META_APPS=""
+        while [[ "${1}x" != "x" ]]; do 
+          META_APPS="$META_APPS$1 " 
+          shift 
+        done 
+
+        echo "1st) META_APP_TAG=[${META_APP_TAG}]"
+        echo "2nd) META_APPS=[${META_APPS}]"
+        
+        for META_APP in ${META_APPS} ; do
+          export OLD_META_NAME=`kubectl -n sample-app get deployments --selector=app.kubernetes.io/name=${META_APP} -o=jsonpath='{.items[*].metadata.name}'`
+          export META_NAME_COND="${META_APP}-*"
+          export META_NAME_SET="${META_APP}-${META_APP_TAG}"
+
+          echo "COMPARE: OLD[${OLD_META_NAME}]=NEW[${META_NAME_SET}]"
+          if [ "${OLD_META_NAME}" = "${META_NAME_SET}" ] ; then
+            # same name and version
+            echo "SAME: OLD[${OLD_META_NAME}]=NEW[${META_NAME_SET}]"
+          else
+            yq ea 'select ( .metadata.name == strenv(META_NAME_COND) ) ' ${OLD_DEPLOY_YAML} >> ${OLD_DEPLOY2_YAML}
+            echo "---" >> ${OLD_DEPLOY2_YAML}
+
+            yq ea 'select ( .metadata.name == strenv(META_NAME_COND) ) | .metadata.name=strenv(META_NAME_SET) ' ${NEW_DEPLOY_YAML} >> ${NEW_DEPLOY2_YAML}
+            echo "---" >> ${NEW_DEPLOY2_YAML}
+          fi
+        done
+      }
+
+      # for AppVersion
+      get_old_new_deployment_for_apps ${TAG_APP_ONLY} ${META_APP_ONLYS} 
+      
+      # for PolVersion
+      get_old_new_deployment_for_apps ${TAG_APP_POLE} ${META_APP_POLES}
+
+  artifacts:
+    paths:
+    - ${TMP_DIR}/*
+    expire_in: 1 week
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - ${CHART_HOME}/Chart.yaml
+        - ${CHART_HOME}/values.yaml
+      when: on_success
+
+deploy-app:
+  stage: deploy
+  image: myhost.com:5005/k8s:latest
+  needs:
+    - job: prepare-app
+      artifacts: true
+
+  before_script:
+    - env
+    - echo "KUBECONFIG(for helm)=${KUBECONFIG}"
+
+  script:
+    - > # check ${NEW_DEPLOY2_YAML}
+      echo "NEW_DEPLOY2_YAML=${NEW_DEPLOY2_YAML}"; ls -la ${NEW_DEPLOY2_YAML};
+
+    - | # Apply
+      echo "APPLY>> kubectl -n ${KUBE_NAMESPACE} apply -f ${NEW_DEPLOY2_YAML}"
+      kubectl -n ${KUBE_NAMESPACE} apply -f ${NEW_DEPLOY2_YAML}
+
+    - | # check artifacts
+      ls -la ${TMP_DIR}
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - ${CHART_HOME}/Chart.yaml
+        - ${CHART_HOME}/values.yaml
+      when: on_success
+
+switch-new:
+  stage: switch
+  image: myhost.com:5005/k8s:latest
+  needs:
+    - job: prepare-app
+      artifacts: true
+    - job: deploy-app
+
+  before_script:
+    - echo "KUBECONFIG(for helm)=${KUBECONFIG}"
+
+  script:
+    - > # check ${NEW_SERVICE_YAML}
+      echo "NEW_SERVICE_YAML=${NEW_SERVICE_YAML}"; ls -la ${NEW_SERVICE_YAML};
+
+    - | # Apply
+      echo "APPLY>> kubectl -n ${KUBE_NAMESPACE} apply --force=true -f ${NEW_SERVICE_YAML}"
+      kubectl -n ${KUBE_NAMESPACE} apply --force=true -f ${NEW_SERVICE_YAML}
+
+    - | # check artifacts
+      ls -la ${TMP_DIR}
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - ${CHART_HOME}/Chart.yaml
+        - ${CHART_HOME}/values.yaml
+      when: on_success
+
+wait-new :
+  stage: onCleanup
+  image: myhost.com:5005/k8s:latest
+  needs:
+    - job: prepare-app
+      artifacts: true
+    - job: switch-new
+
+  script:
+    - | # wait ${NEW_DEPLOY_YAML} and ${NEW_SERVICE_YAML}
+      echo "sleep ${WAIT_SEC_SWITCH}"
+      sleep ${WAIT_SEC_SWITCH}
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - ${CHART_HOME}/Chart.yaml
+        - ${CHART_HOME}/values.yaml
+      when: on_success
+
+remove-old :
+  stage: onCleanup
+  image: myhost.com:5005/k8s:latest
+  needs:
+    - job: prepare-app
+      artifacts: true
+    - job: wait-new
+
+  before_script:
+    - echo "KUBECONFIG(for helm)=${KUBECONFIG}"
+
+  script:
+    - | # check ${OLD_DEPLOY2_YAML}
+      echo "OLD_DEPLOY2_YAML=${OLD_DEPLOY2_YAML}"; ls -la ${OLD_DEPLOY2_YAML};
+
+    - | # Apply
+      echo "OLD_DEPLOY_NAME=${OLD_DEPLOY_NAME}, INIT_DEPLOY_NAME=${INIT_DEPLOY_NAME}"
+      echo "APPLY>> kubectl -n ${KUBE_NAMESPACE} delete -f ${OLD_DEPLOY2_YAML} || true"
+      kubectl -n ${KUBE_NAMESPACE} delete -f ${OLD_DEPLOY2_YAML} || true
+
+    - | # check artifacts
+      ls -la ${TMP_DIR}
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - ${CHART_HOME}/Chart.yaml
+        - ${CHART_HOME}/values.yaml
+      when: on_success
+
+rollback-old :
+  stage: onRollback
+  image: myhost.com:5005/k8s:latest
+  needs:
+    - job: prepare-app
+      artifacts: true
+    - job: switch-new
+
+  before_script:
+    - echo "KUBECONFIG(for helm)=${KUBECONFIG}"
+    
+  script:
+    - > # check ${OLD_DEPLOY2_YAML}
+      echo "OLD_DEPLOY2_YAML=${OLD_DEPLOY2_YAML}"; ls -la ${OLD_DEPLOY2_YAML};
+
+    - | # Apply
+      echo "APPLY>> kubectl -n ${KUBE_NAMESPACE} apply -f ${OLD_DEPLOY2_YAML}"
+      kubectl -n ${KUBE_NAMESPACE} apply -f ${OLD_DEPLOY2_YAML}
+
+    - > # check ${OLD_SERVICE_YAML}
+      echo "OLD_SERVICE_YAML=${OLD_SERVICE_YAML}"; ls -la ${OLD_SERVICE_YAML};
+
+    - | # Apply
+      echo "APPLY>> kubectl -n ${KUBE_NAMESPACE} apply --force=true -f ${OLD_SERVICE_YAML}"
+      kubectl -n ${KUBE_NAMESPACE} apply --force=true -f ${OLD_SERVICE_YAML}
+
+    - | # check artifacts
+      ls -la ${TMP_DIR}
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - ${CHART_HOME}/Chart.yaml
+        - ${CHART_HOME}/values.yaml
+      when: manual
+      allow_failure: true
+
+remove-new:
+  stage: onRollback
+  needs:
+    - job: prepare-app
+      artifacts: true
+    - job: rollback-old
+    - job: deploy-app
+
+  before_script:
+    - echo "KUBECONFIG(for helm)=${KUBECONFIG}"
+
+  script:
+    - >
+      echo "Cleaned up new deployment"
+
+    - > # check ${NEW_DEPLOY2_YAML}
+      echo "NEW_DEPLOY2_YAML=${NEW_DEPLOY2_YAML}"; ls -la ${NEW_DEPLOY2_YAML};
+
+    - | # Apply
+      echo "APPLY>> kubectl -n ${KUBE_NAMESPACE} delete -f ${NEW_DEPLOY2_YAML}"
+      kubectl -n ${KUBE_NAMESPACE} delete -f ${NEW_DEPLOY2_YAML}
+
+    - | # check artifacts
+      ls -la ${TMP_DIR}
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - ${CHART_HOME}/Chart.yaml
+        - ${CHART_HOME}/values.yaml
+      when: manual
+      allow_failure: true
