@@ -106,6 +106,18 @@ docker login 192.168.5.69:5000
 
 ## 3. gitlab-ci 적용 예제
 
+- [gitlab-ci.yml 설명](https://assu10.github.io/dev/2020/10/09/gitlab-runner-3/)
+- gitlab 에 k8s 등록
+  - cluster-info
+    - kubectl cluster-info | grep -E 'Kubernetes master|Kubernetes control plane' | awk '/http/ {print $NF}'
+  - CA-Certificate
+    - SECRET_NAME=`kubectl get secrets | grep default | awk '{print $1}'`
+    - kubectl get secret ${SECRET_NAME} -o jsonpath="{['data']['ca\.crt']}" | base64 --decode
+
+- blue/green or red/black
+  - [참고#1](https://www.ianlewis.org/en/bluegreen-deployments-kubernetes)
+  - [참고#2](https://docs.gitlab.com/ee/ci/environments/incremental_rollouts.html)
+  - [참고#3](https://gitlab.com/gl-release/blue-green-example)
 - sample-app/chart 참조
   - red/black deploy 을 위해서, 내부에서 Chart.yaml 의 appVersion 을 이용하여 각 sample-app 의 버전을 지정
   - sample-app 과 연동하는 sample-mod 의 버전을 별도로 관리하기 위해서 values.yaml 의 mod.version 으로 별도 관리
