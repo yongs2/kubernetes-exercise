@@ -1,0 +1,32 @@
+# Refer https://github.com/cert-manager/cert-manager/blob/ca3296125321d0eb5f6e9f3dda62024d8d371bf1/deploy/crds/crd-certificates.yaml
+# export INGRESS_HOST=$(kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' | sed 's/\./-/g')
+# export INGRESS_DOMAIN=${INGRESS_HOST}.nip.io
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: selfsigned-cert
+  namespace: istio-system
+spec:
+  secretName: selfsigned-cert-tls
+  duration: 2880h # 120d
+  renewBefore: 360h # 15d
+  subject:
+    organizations:
+      - example.com
+  commonName: ${INGRESS_DOMAIN}
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - ${INGRESS_DOMAIN}
+    - www.${INGRESS_DOMAIN}
+  issuerRef:
+    name: selfsigned-cluster-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

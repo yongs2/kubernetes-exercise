@@ -1,0 +1,43 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: web-gateway
+  namespace: istio-system
+spec:
+  selector:
+    app: istio-ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http-web
+      protocol: HTTP
+    hosts:
+    - www.${INGRESS_DOMAIN}
+    tls:
+      httpsRedirect: true
+  - port:
+      number: 443
+      name: https-web
+      protocol: HTTPS
+    hosts:
+    - www.${INGRESS_DOMAIN}
+    tls:
+      credentialName: selfsigned-cert-tls
+      mode: SIMPLE
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: web-virtual-service
+  namespace: default
+spec:
+  hosts:
+  - www.${INGRESS_DOMAIN}
+  gateways:
+  - istio-system/web-gateway
+  http:
+  - route:
+    - destination:
+        host: my-nginx.default.svc.cluster.local
+        port:
+          number: 80
