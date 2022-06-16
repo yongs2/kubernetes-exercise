@@ -1,0 +1,114 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: gitlab-gateway
+  namespace: cicd
+spec:
+  selector:
+    app: istio-ingressgateway
+  servers:
+  - port:
+      number: 22
+      name: ssh-gitlab
+      protocol: TCP
+    hosts:
+    - gitlab.192-168-5-81.nip.io
+  - port:
+      number: 80
+      name: http-gitlab
+      protocol: HTTP
+    hosts:
+    - gitlab.192-168-5-81.nip.io
+    - minio.192-168-5-81.nip.io
+    - registry.192-168-5-81.nip.io
+    tls:
+      httpsRedirect: true
+  - port:
+      number: 443
+      name: https-gitlab
+      protocol: HTTPS
+    hosts:
+    - gitlab.192-168-5-81.nip.io
+    - minio.192-168-5-81.nip.io
+    - registry.192-168-5-81.nip.io
+    tls:
+      credentialName: istio-system/selfsigned-server-tls
+      mode: SIMPLE
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: gitlab-ssh-virtual-service
+  namespace: cicd
+spec:
+  hosts:
+  - gitlab.192-168-5-81.nip.io
+  gateways:
+  - gitlab-gateway
+  tcp:
+  - match:
+    - port: 22
+    route:
+    - destination:
+        host: gitlab-gitlab-shell.cicd.svc.cluster.local
+        port:
+          number: 22
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: gitlab-http-virtual-service
+  namespace: cicd
+spec:
+  hosts:
+  - gitlab.192-168-5-81.nip.io
+  gateways:
+  - gitlab-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /admin/sidekiq
+    route:
+    - destination:
+        host: gitlab-webservice-default.cicd.svc.cluster.local
+        port:
+          number: 8080
+  - route:
+    - destination:
+        host: gitlab-webservice-default.cicd.svc.cluster.local
+        port:
+          number: 8181
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: gitlab-minio-virtual-service
+  namespace: cicd
+spec:
+  hosts:
+  - minio.192-168-5-81.nip.io
+  gateways:
+  - gitlab-gateway
+  http:
+  - route:
+    - destination:
+        host: gitlab-minio-svc.cicd.svc.cluster.local
+        port:
+          number: 9000
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: gitlab-registry-virtual-service
+  namespace: cicd
+spec:
+  hosts:
+  - registry.192-168-5-81.nip.io
+  gateways:
+  - gitlab-gateway
+  http:
+  - route:
+    - destination:
+        host: gitlab-registry.cicd.svc.cluster.local
+        port:
+          number: 5000

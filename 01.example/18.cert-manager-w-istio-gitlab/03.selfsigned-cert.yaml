@@ -1,0 +1,72 @@
+# Refer https://github.com/cert-manager/cert-manager/blob/ca3296125321d0eb5f6e9f3dda62024d8d371bf1/deploy/crds/crd-certificates.yaml
+# Create a CA Certificate:
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: selfsigned-ca
+  namespace: istio-system #default
+spec:
+  secretName: selfsigned-ca-tls
+  duration: 1h # 2880h(120d)
+  renewBefore: 30m # 360h(15d)
+  subject:
+    organizations:
+      - ntels
+    countries:
+      - KR
+  commonName: 192-168-5-81.nip.io
+  isCA: true
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - "192-168-5-81.nip.io"
+  issuerRef:
+    name: selfsigned-cluster-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# Create a second Issuer using the secret name from the selfsigned-ca-tls secret
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+ name: selfsigned-ca-issuer
+ namespace: istio-system
+spec:
+ ca:
+   secretName: selfsigned-ca-tls
+---
+# Create a TLS Certificate from the new CA Issuer:
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: selfsigned-server
+  namespace: istio-system #default
+spec:
+  secretName: selfsigned-server-tls
+  duration: 1h # 2880h(120d)
+  renewBefore: 30m # 360h(15d)
+  subject:
+    organizations:
+      - ntels-cicd
+    countries:
+      - KR
+  commonName: "*.192-168-5-81.nip.io"
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - "*.192-168-5-81.nip.io"
+  issuerRef:
+    name: selfsigned-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
